@@ -135,6 +135,12 @@ main{max-width:1080px;margin:18px auto 40px;padding:0 16px}
 @media(max-width:640px){.locker-row{grid-template-columns:repeat(6,minmax(0,1fr))}.locker-letter{grid-column:1/-1;justify-content:flex-start;margin-top:6px}}
 .hist-top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .hist-top .btn{width:auto}
+.hist-filters{display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto auto;gap:8px;margin:10px 0 14px;align-items:end}
+.hist-filters .field{margin:0}
+.hist-filters label{font-size:.68rem;font-weight:700;color:#6b7280;margin-bottom:5px;display:block}
+.hist-filters .btn{width:auto;white-space:nowrap}
+@media(max-width:820px){.hist-filters{grid-template-columns:1fr 1fr}.hist-filters .wide{grid-column:1/-1}}
+@media(max-width:520px){.hist-filters{grid-template-columns:1fr}.hist-filters .wide{grid-column:auto}.hist-filters .btn{width:100%}}
 .table-wrap{overflow:auto;border-radius:12px;border:1px solid #ECE8F5}
 table{border-collapse:collapse;font-size:.72rem;min-width:860px;width:100%}
 th{background:var(--purple-deep);color:#fff;padding:10px 8px;text-align:left;font-weight:600;white-space:nowrap}
@@ -258,6 +264,7 @@ let uiAdminTab='cola';
 let lockerTargetId=null;
 let lastSearch='';
 let toastTimer=null;
+let histFilter={q:'',status:'all',from:'',to:''};
 
 try{adminToken=sessionStorage.getItem('ucsm_admin_token')||'';}catch(e){}
 
@@ -289,12 +296,6 @@ function upsertLocal(rec){
   if(i>=0)db.records[i]=rec;else db.records.unshift(rec);
 }
 
-function isAdminRemoved(r){
-  return (r.events||[]).some(e=>e.type==='check' && e.note==='__ADMIN_REMOVED__');
-}
-function onlyVisible(records){
-  return (records||[]).filter(r=>!isAdminRemoved(r));
-}
 
 function tickClock(){
   let d=new Date();
@@ -374,7 +375,7 @@ async function searchPickup(){
   if(!q){toast('⚠️ Ingresa tu código o tus nombres','warn');return}
   lastSearch=q;
   try{
-    let res=onlyVisible(await cloud('search',{q}));
+    let res=await cloud('search',{q});
     db.records=res.slice();
     renderPickupResults(res);
   }catch(e){toast('⚠️ '+e.message,'warn')}
@@ -446,7 +447,7 @@ async function adminLogin(){
 async function loadAdminData(){
   if(!adminToken){adminOk=false;renderAdmin();return}
   try{
-    db.records=onlyVisible(await cloud('admin_load',{token:adminToken}));
+    db.records=await cloud('admin_load',{token:adminToken});
     adminOk=true;renderAdmin();
   }catch(e){
     adminToken='';adminOk=false;try{sessionStorage.removeItem('ucsm_admin_token')}catch(x){}
@@ -527,43 +528,6 @@ async function markReady(id){try{let upd=await cloud('mark_ready',{token:adminTo
 async function backToProcess(id){try{let upd=await cloud('back_process',{token:adminToken,id});upsertLocal(upd);renderAdmin();toast(upd.code+' vuelto a proceso')}catch(e){toast('⚠️ '+e.message,'warn')}}
 async function resolvePending(id){try{let upd=await cloud('resolve_pending',{token:adminToken,id});upsertLocal(upd);renderAdmin();toast('Pendientes de '+upd.code+' confirmados como entregados ✔','mint')}catch(e){toast('⚠️ '+e.message,'warn')}}
 
-async function adminRemoveRecord(id){
-  let r=findRec(id);if(!r)return;
-  let ok=confirm('¿Seguro que deseas borrar este registro?\n\n'+r.name+' · Código '+r.code+'\n\nSolo se quitará este registro.');
-  if(!ok)return;
-
-  try{
-    let cur=r;
-
-    if(cur.status==='completed'){
-      cur=await cloud('back_process',{token:adminToken,id:cur.id});
-      upsertLocal(cur);
-    }
-
-    if(cur.status==='received'){
-      cur=await cloud('mark_ready',{token:adminToken,id:cur.id});
-      upsertLocal(cur);
-    }
-
-    cur=await cloud('pickup_pending',{
-      id:cur.id,
-      code:cur.code,
-      note:'__ADMIN_REMOVED__'
-    });
-    upsertLocal(cur);
-
-    cur=await cloud('pickup_conforme',{id:cur.id,code:cur.code});
-
-    db.records=db.records.filter(x=>x.id!==id);
-    closeModal();
-    renderAdmin();
-    toast('Registro '+r.code+' borrado de la página ✔','mint');
-  }catch(e){
-    toast('⚠️ No se pudo borrar: '+e.message,'warn');
-    try{await loadAdminData()}catch(_){}
-  }
-}
-
 function rowObj(r){
   let pk=evLast(r,'pickup'),pc=evLast(r,'check'),ready=evAt(r,'ready'),estado=r.status==='completed'?'ENTREGADO (CONFORME)':r.status==='ready'?'LISTO':'EN PROCESO';
   if(lastPending(r))estado+=' · PENDIENTE REP.';
@@ -585,11 +549,68 @@ function exportCSV(){
   let data=[cols.join(';'),...rows.map(o=>cols.map(c=>cell(o[c])).join(';'))].join('\n');
   let a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+data],{type:'text/csv;charset=utf-8'}));a.download='historial_esterilizacion_ucsm.csv';document.body.appendChild(a);a.click();a.remove();
 }
+function histStatusKey(r){
+  if(r.status==='completed')return 'completed';
+  if(lastPending(r))return 'pending';
+  if(r.status==='ready')return 'ready';
+  return 'received';
+}
+function filterHistoryRows(rows){
+  let q=(histFilter.q||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  let from=histFilter.from?new Date(histFilter.from+'T00:00:00'):null;
+  let to=histFilter.to?new Date(histFilter.to+'T23:59:59'):null;
+
+  return rows.filter(r=>{
+    if(q){
+      let hay=(r.code+' '+r.name+' '+matsText(r)+' '+(lockersText(r)||'')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      if(!hay.includes(q))return false;
+    }
+    if(histFilter.status!=='all' && histStatusKey(r)!==histFilter.status)return false;
+
+    let at=evAt(r,'delivery');
+    if(at){
+      let d=new Date(at);
+      if(from && d<from)return false;
+      if(to && d>to)return false;
+    }else if(from||to){
+      return false;
+    }
+    return true;
+  });
+}
+function applyHistFilters(){
+  histFilter.q=($id('histQ')?.value||'').trim();
+  histFilter.status=$id('histStatus')?.value||'all';
+  histFilter.from=$id('histFrom')?.value||'';
+  histFilter.to=$id('histTo')?.value||'';
+  renderAdmin();
+}
+function clearHistFilters(){
+  histFilter={q:'',status:'all',from:'',to:''};
+  renderAdmin();
+}
 function histHTML(){
-  let rows=db.records.slice().sort((a,b)=>(evAt(b,'delivery')||'').localeCompare(evAt(a,'delivery')||''));
-  let h='<div class="card"><div class="hist-top"><h3 class="m-title">📑 Historial general ('+rows.length+' registros · retención 6 meses)</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel · Reporte diario</button><button class="btn btn-ghost btn-sm" onclick="exportCSV()">CSV</button></div></div><div class="table-wrap"><table><thead><tr><th>Código</th><th>Estudiante</th><th>Paq.</th><th>Materiales</th><th>Casillero(s)</th><th>🕒 Entrega</th><th>🕒 Listo</th><th>🕒 Recojo</th><th>Estado</th><th>Acción</th></tr></thead><tbody>';
-  rows.forEach(r=>{let o=rowObj(r),pk=evLast(r,'pickup'),pc=evLast(r,'check'),ready=evAt(r,'ready');h+='<tr><td><b>'+r.code+'</b></td><td>'+esc(r.name)+'</td><td>'+r.packages+'</td><td>'+esc(matsText(r))+'</td><td>'+esc(lockersText(r)||'—')+'</td><td>'+fmtDT(evAt(r,'delivery'))+'</td><td>'+(ready?fmtDT(ready):'—')+'</td><td>'+(pk?fmtDT(pk.at):(pc?fmtDT(pc.at)+' (PEND.)':'—'))+'</td><td>'+esc(o['Estado'])+'</td><td><button class="btn btn-outline btn-sm" style="border-color:#E25555;color:#B42318;white-space:nowrap" onclick="adminRemoveRecord(\''+r.id+'\')">🗑️ Borrar</button></td></tr>'});
-  return h+'</tbody></table></div></div>';
+  let allRows=db.records.slice().sort((a,b)=>(evAt(b,'delivery')||'').localeCompare(evAt(a,'delivery')||''));
+  let rows=filterHistoryRows(allRows);
+  let h='<div class="card"><div class="hist-top"><h3 class="m-title">📑 Historial general ('+rows.length+' de '+allRows.length+' registros)</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel · Reporte diario</button><button class="btn btn-ghost btn-sm" onclick="exportCSV()">CSV</button></div></div>'+
+  '<div class="hist-filters">'+
+    '<div class="field wide"><label>Buscar</label><input id="histQ" class="input" type="text" placeholder="Código, estudiante, material o casillero" value="'+esc(histFilter.q)+'"></div>'+
+    '<div class="field"><label>Estado</label><select id="histStatus" class="input">'+
+      '<option value="all"'+(histFilter.status==='all'?' selected':'')+'>Todos</option>'+
+      '<option value="received"'+(histFilter.status==='received'?' selected':'')+'>En esterilización</option>'+
+      '<option value="ready"'+(histFilter.status==='ready'?' selected':'')+'>Listo</option>'+
+      '<option value="pending"'+(histFilter.status==='pending'?' selected':'')+'>Pendiente</option>'+
+      '<option value="completed"'+(histFilter.status==='completed'?' selected':'')+'>Entregado</option>'+
+    '</select></div>'+
+    '<div class="field"><label>Desde</label><input id="histFrom" class="input" type="date" value="'+esc(histFilter.from)+'"></div>'+
+    '<div class="field"><label>Hasta</label><input id="histTo" class="input" type="date" value="'+esc(histFilter.to)+'"></div>'+
+    '<button class="btn btn-primary btn-sm" onclick="applyHistFilters()">🔎 Filtrar</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="clearHistFilters()">↺ Limpiar</button>'+
+  '</div>'+
+  (rows.length?'<div class="table-wrap"><table><thead><tr><th>Código</th><th>Estudiante</th><th>Paq.</th><th>Materiales</th><th>Casillero(s)</th><th>🕒 Entrega</th><th>🕒 Listo</th><th>🕒 Recojo</th><th>Estado</th></tr></thead><tbody>':'<div class="empty-card"><div class="empty-icon">🔎</div><h3 class="card-title">Sin resultados</h3><p class="card-sub">No hay registros que coincidan con los filtros seleccionados.</p></div>');
+  rows.forEach(r=>{let o=rowObj(r),pk=evLast(r,'pickup'),pc=evLast(r,'check'),ready=evAt(r,'ready');h+='<tr><td><b>'+r.code+'</b></td><td>'+esc(r.name)+'</td><td>'+r.packages+'</td><td>'+esc(matsText(r))+'</td><td>'+esc(lockersText(r)||'—')+'</td><td>'+fmtDT(evAt(r,'delivery'))+'</td><td>'+(ready?fmtDT(ready):'—')+'</td><td>'+(pk?fmtDT(pk.at):(pc?fmtDT(pc.at)+' (PEND.)':'—'))+'</td><td>'+esc(o['Estado'])+'</td></tr>'});
+  if(rows.length)h+='</tbody></table></div>';
+  return h+'</div>';
 }
 function renderAdmin(){
   let area=$id('viewAdmin');if(!area)return;
@@ -602,6 +623,10 @@ function renderAdmin(){
   h+=statsHTML();
   h+=uiAdminTab==='cola'?queueHTML():uiAdminTab==='lockers'?lockersHTML():histHTML();
   area.innerHTML=h;
+  if(uiAdminTab==='hist'){
+    let hq=$id('histQ');
+    if(hq)hq.addEventListener('keydown',e=>{if(e.key==='Enter')applyHistFilters()});
+  }
 }
 function openChangePin(){
   openModal('<h3 class="m-title">🔑 Cambiar PIN del administrador</h3><div class="field" style="margin-top:10px"><label>Nuevo PIN (4 a 8 dígitos)</label><input id="newPin1" type="password" class="input" inputmode="numeric" maxlength="8"></div><div class="field"><label>Repetir nuevo PIN</label><input id="newPin2" type="password" class="input" inputmode="numeric" maxlength="8"></div><div class="m-btns"><button class="btn btn-primary" onclick="savePin()">💾 Guardar nuevo PIN</button><button class="btn btn-ghost" onclick="closeModal()">Cancelar</button></div>');
