@@ -476,7 +476,6 @@ function adminCard(r){
   if(lp)h+='<div class="pend-note">⚠️ <b>PENDIENTE reportado</b> el '+fmtDT(lp.at)+(lp.note?': “'+esc(lp.note)+'”':'.')+'</div><div style="margin-top:8px"><button class="btn btn-mint btn-sm" onclick="resolvePending(\''+r.id+'\')">✔ CONFIRMAR ENTREGA DE PENDIENTES</button></div>';
   h+='<div class="rec-actions"><button class="btn btn-ghost btn-sm" onclick="openLockerPicker(\''+r.id+'\')">🗄️ '+(lt?'Cambiar casilleros':'Asignar casillero')+' ('+(r.lockers||[]).length+'/'+MAX_LOCKERS+')</button>';
   h+=r.status==='received'?'<button class="btn btn-mint btn-sm" onclick="markReady(\''+r.id+'\')">♨️ MARCAR ESTERILIZADO (LISTO)</button>':'<button class="btn btn-sky btn-sm" onclick="backToProcess(\''+r.id+'\')">↩ Volver a proceso</button>';
-  h+='<button class="btn btn-outline btn-sm" style="border-color:#E25555;color:#B42318" onclick="adminRemoveRecord(\''+r.id+'\')">🗑️ Borrar registro</button>';
   return h+'</div></div>';
 }
 function queueHTML(){
