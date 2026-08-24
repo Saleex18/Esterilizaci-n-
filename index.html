@@ -481,10 +481,28 @@ function adminCard(r){
   return h+'</div></div>';
 }
 function queueHTML(){
-  let act=db.records.filter(r=>r.status!=='completed').sort((a,b)=>(evAt(a,'delivery')||'').localeCompare(evAt(b,'delivery')||''));
-  if(!act.length)return '<div class="card empty-card"><div class="empty-icon">🧺</div><h3 class="card-title">Sin registros activos</h3><p class="card-sub">Cuando los estudiantes entreguen paquetes aparecerán aquí en cola.</p></div>';
+  let act=db.records.filter(r=>r.status==='received').sort((a,b)=>(evAt(a,'delivery')||'').localeCompare(evAt(b,'delivery')||''));
+  if(!act.length)return '<div class="card empty-card"><div class="empty-icon">🧺</div><h3 class="card-title">Sin registros activos</h3><p class="card-sub">No hay paquetes actualmente en proceso de esterilización.</p></div>';
   return '<div>'+act.map(adminCard).join('')+'</div>';
 }
+
+function readyHTML(){
+  let rows=db.records.filter(r=>r.status==='ready').slice().sort((a,b)=>{
+    let ar=evAt(a,'ready')||'', br=evAt(b,'ready')||'';
+    return br.localeCompare(ar);
+  });
+
+  if(!rows.length){
+    return '<div class="card empty-card"><div class="empty-icon">✅</div><h3 class="card-title">Sin paquetes listos</h3><p class="card-sub">Cuando un paquete sea marcado como esterilizado y listo para recojo, aparecerá aquí.</p></div>';
+  }
+
+  let html='<div class="card"><div class="hist-top"><h3 class="m-title">✅ Listos para recojo ('+rows.length+')</h3></div><p class="card-sub">Desde aquí puedes revisar los paquetes listos. Si es necesario, puedes usar <b>↩ Volver a proceso</b> para regresarlos a esterilización.</p></div>';
+  html+='<div style="margin-top:12px">';
+  rows.forEach(r=>{html+=adminCard(r);});
+  html+='</div>';
+  return html;
+}
+
 function slotButtons(lm,mode,targetId){
   let h='';
   LOCKER_ROWS.forEach(row=>{
@@ -683,9 +701,10 @@ function renderAdmin(){
     let pi=$id('pinInput');if(pi)pi.addEventListener('keydown',e=>{if(e.key==='Enter')adminLogin()});
     return;
   }
-  let h='<div class="admin-top"><div class="admin-tabs"><button class="atab'+(uiAdminTab==='cola'?' on':'')+'" onclick="switchAdminTab(\'cola\')">🧺 Cola activa</button><button class="atab'+(uiAdminTab==='lockers'?' on':'')+'" onclick="switchAdminTab(\'lockers\')">🗄️ Casilleros A–E</button><button class="atab'+(uiAdminTab==='hist'?' on':'')+'" onclick="switchAdminTab(\'hist\')">📑 Historial</button><button class="atab'+(uiAdminTab==='entregados'?' on':'')+'" onclick="switchAdminTab(\'entregados\')">🏁 Entregados</button></div><div class="admin-actions"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel</button><button class="btn btn-ghost btn-sm" onclick="openChangePin()">🔑 PIN</button><button class="btn btn-outline btn-sm" onclick="adminLogout()">🚪 Salir</button></div></div>';
+  let h='<div class="admin-top"><div class="admin-tabs"><button class="atab'+(uiAdminTab==='cola'?' on':'')+'" onclick="switchAdminTab(\'cola\')">🧺 Cola activa</button><button class="atab'+(uiAdminTab==='listos'?' on':'')+'" onclick="switchAdminTab(\'listos\')">✅ Listos para recojo</button><button class="atab'+(uiAdminTab==='lockers'?' on':'')+'" onclick="switchAdminTab(\'lockers\')">🗄️ Casilleros A–E</button><button class="atab'+(uiAdminTab==='hist'?' on':'')+'" onclick="switchAdminTab(\'hist\')">📑 Historial</button><button class="atab'+(uiAdminTab==='entregados'?' on':'')+'" onclick="switchAdminTab(\'entregados\')">🏁 Entregados</button></div><div class="admin-actions"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel</button><button class="btn btn-ghost btn-sm" onclick="openChangePin()">🔑 PIN</button><button class="btn btn-outline btn-sm" onclick="adminLogout()">🚪 Salir</button></div></div>';
   h+=statsHTML();
   if(uiAdminTab==='cola')h+=queueHTML();
+  else if(uiAdminTab==='listos')h+=readyHTML();
   else if(uiAdminTab==='lockers')h+=lockersHTML();
   else if(uiAdminTab==='hist')h+=histHTML();
   else h+=deliveredHTML();
