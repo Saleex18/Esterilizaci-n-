@@ -265,6 +265,7 @@ let lockerTargetId=null;
 let lastSearch='';
 let toastTimer=null;
 let histFilter={q:'',status:'all',from:'',to:''};
+let deliveredFilter={q:'',from:'',to:''};
 
 try{adminToken=sessionStorage.getItem('ucsm_admin_token')||'';}catch(e){}
 
@@ -590,7 +591,7 @@ function clearHistFilters(){
   renderAdmin();
 }
 function histHTML(){
-  let allRows=db.records.slice().sort((a,b)=>(evAt(b,'delivery')||'').localeCompare(evAt(a,'delivery')||''));
+  let allRows=db.records.filter(r=>r.status!=='completed').slice().sort((a,b)=>(evAt(b,'delivery')||'').localeCompare(evAt(a,'delivery')||''));
   let rows=filterHistoryRows(allRows);
   let h='<div class="card"><div class="hist-top"><h3 class="m-title">📑 Historial general ('+rows.length+' de '+allRows.length+' registros)</h3><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel · Reporte diario</button><button class="btn btn-ghost btn-sm" onclick="exportCSV()">CSV</button></div></div>'+
   '<div class="hist-filters">'+
@@ -600,7 +601,6 @@ function histHTML(){
       '<option value="received"'+(histFilter.status==='received'?' selected':'')+'>En esterilización</option>'+
       '<option value="ready"'+(histFilter.status==='ready'?' selected':'')+'>Listo</option>'+
       '<option value="pending"'+(histFilter.status==='pending'?' selected':'')+'>Pendiente</option>'+
-      '<option value="completed"'+(histFilter.status==='completed'?' selected':'')+'>Entregado</option>'+
     '</select></div>'+
     '<div class="field"><label>Desde</label><input id="histFrom" class="input" type="date" value="'+esc(histFilter.from)+'"></div>'+
     '<div class="field"><label>Hasta</label><input id="histTo" class="input" type="date" value="'+esc(histFilter.to)+'"></div>'+
@@ -612,6 +612,70 @@ function histHTML(){
   if(rows.length)h+='</tbody></table></div>';
   return h+'</div>';
 }
+
+function filterDeliveredRows(rows){
+  let q=(deliveredFilter.q||'').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  let from=deliveredFilter.from?new Date(deliveredFilter.from+'T00:00:00'):null;
+  let to=deliveredFilter.to?new Date(deliveredFilter.to+'T23:59:59'):null;
+
+  return rows.filter(r=>{
+    if(q){
+      let hay=(r.code+' '+r.name+' '+matsText(r)).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      if(!hay.includes(q))return false;
+    }
+    let pk=evLast(r,'pickup');
+    let at=pk?pk.at:evAt(r,'delivery');
+    if(at){
+      let d=new Date(at);
+      if(from && d<from)return false;
+      if(to && d>to)return false;
+    }else if(from||to){
+      return false;
+    }
+    return true;
+  });
+}
+function applyDeliveredFilters(){
+  deliveredFilter.q=($id('delivQ')?.value||'').trim();
+  deliveredFilter.from=$id('delivFrom')?.value||'';
+  deliveredFilter.to=$id('delivTo')?.value||'';
+  renderAdmin();
+}
+function clearDeliveredFilters(){
+  deliveredFilter={q:'',from:'',to:''};
+  renderAdmin();
+}
+function deliveredHTML(){
+  let allRows=db.records.filter(r=>r.status==='completed').slice().sort((a,b)=>{
+    let ap=evLast(a,'pickup'),bp=evLast(b,'pickup');
+    return ((bp&&bp.at)||'').localeCompare((ap&&ap.at)||'');
+  });
+  let rows=filterDeliveredRows(allRows);
+
+  let h='<div class="card"><div class="hist-top"><h3 class="m-title">🏁 Entregados ('+rows.length+' de '+allRows.length+')</h3>'+
+  '<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel</button><button class="btn btn-ghost btn-sm" onclick="exportCSV()">CSV</button></div></div>'+
+  '<div class="hist-filters">'+
+    '<div class="field wide"><label>Buscar</label><input id="delivQ" class="input" type="text" placeholder="Código, estudiante o material" value="'+esc(deliveredFilter.q)+'"></div>'+
+    '<div class="field"><label>Desde</label><input id="delivFrom" class="input" type="date" value="'+esc(deliveredFilter.from)+'"></div>'+
+    '<div class="field"><label>Hasta</label><input id="delivTo" class="input" type="date" value="'+esc(deliveredFilter.to)+'"></div>'+
+    '<button class="btn btn-primary btn-sm" onclick="applyDeliveredFilters()">🔎 Filtrar</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="clearDeliveredFilters()">↺ Limpiar</button>'+
+  '</div>';
+
+  if(!rows.length){
+    h+='<div class="empty-card"><div class="empty-icon">🏁</div><h3 class="card-title">Sin entregados</h3><p class="card-sub">No hay registros entregados que coincidan con los filtros seleccionados.</p></div></div>';
+    return h;
+  }
+
+  h+='<div class="table-wrap"><table><thead><tr><th>Código</th><th>Estudiante</th><th>Paq.</th><th>Materiales</th><th>🕒 Entrega inicial</th><th>🕒 Recojo</th><th>Estado</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    let pk=evLast(r,'pickup');
+    h+='<tr><td><b>'+r.code+'</b></td><td>'+esc(r.name)+'</td><td>'+r.packages+'</td><td>'+esc(matsText(r))+'</td><td>'+fmtDT(evAt(r,'delivery'))+'</td><td>'+(pk?fmtDT(pk.at):'—')+'</td><td><span class="badge completed">✔ ENTREGADO</span></td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  return h;
+}
+
 function renderAdmin(){
   let area=$id('viewAdmin');if(!area)return;
   if(!adminOk){
@@ -619,13 +683,22 @@ function renderAdmin(){
     let pi=$id('pinInput');if(pi)pi.addEventListener('keydown',e=>{if(e.key==='Enter')adminLogin()});
     return;
   }
-  let h='<div class="admin-top"><div class="admin-tabs"><button class="atab'+(uiAdminTab==='cola'?' on':'')+'" onclick="switchAdminTab(\'cola\')">🧺 Cola activa</button><button class="atab'+(uiAdminTab==='lockers'?' on':'')+'" onclick="switchAdminTab(\'lockers\')">🗄️ Casilleros A–E</button><button class="atab'+(uiAdminTab==='hist'?' on':'')+'" onclick="switchAdminTab(\'hist\')">📑 Historial</button></div><div class="admin-actions"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel</button><button class="btn btn-ghost btn-sm" onclick="openChangePin()">🔑 PIN</button><button class="btn btn-outline btn-sm" onclick="adminLogout()">🚪 Salir</button></div></div>';
+  let h='<div class="admin-top"><div class="admin-tabs"><button class="atab'+(uiAdminTab==='cola'?' on':'')+'" onclick="switchAdminTab(\'cola\')">🧺 Cola activa</button><button class="atab'+(uiAdminTab==='lockers'?' on':'')+'" onclick="switchAdminTab(\'lockers\')">🗄️ Casilleros A–E</button><button class="atab'+(uiAdminTab==='hist'?' on':'')+'" onclick="switchAdminTab(\'hist\')">📑 Historial</button><button class="atab'+(uiAdminTab==='entregados'?' on':'')+'" onclick="switchAdminTab(\'entregados\')">🏁 Entregados</button></div><div class="admin-actions"><button class="btn btn-excel btn-sm" onclick="exportExcel()">📗 Excel</button><button class="btn btn-ghost btn-sm" onclick="openChangePin()">🔑 PIN</button><button class="btn btn-outline btn-sm" onclick="adminLogout()">🚪 Salir</button></div></div>';
   h+=statsHTML();
-  h+=uiAdminTab==='cola'?queueHTML():uiAdminTab==='lockers'?lockersHTML():histHTML();
+  if(uiAdminTab==='cola')h+=queueHTML();
+  else if(uiAdminTab==='lockers')h+=lockersHTML();
+  else if(uiAdminTab==='hist')h+=histHTML();
+  else h+=deliveredHTML();
+
   area.innerHTML=h;
+
   if(uiAdminTab==='hist'){
     let hq=$id('histQ');
     if(hq)hq.addEventListener('keydown',e=>{if(e.key==='Enter')applyHistFilters()});
+  }
+  if(uiAdminTab==='entregados'){
+    let dq=$id('delivQ');
+    if(dq)dq.addEventListener('keydown',e=>{if(e.key==='Enter')applyDeliveredFilters()});
   }
 }
 function openChangePin(){
