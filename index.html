@@ -883,15 +883,14 @@ async function savePin(){
 
 
 let fakeBugBusy=false;
+let fakeOutageIndex=0;
+let fakeOutageTimer=null;
 
 function fakeBugsAllowed(){
   const adminView=$id('viewAdmin');
   const studentView=$id('viewStudent');
   const adminIsVisible=adminView && !adminView.hidden;
   const studentIsVisible=studentView && !studentView.hidden;
-
-  // Los efectos fingidos se muestran únicamente cuando se está viendo
-  // la interfaz de ESTUDIANTE. Si se entra a Admin, desaparecen.
   return studentIsVisible && !adminIsVisible;
 }
 
@@ -899,19 +898,22 @@ function clearFakeSystemEffect(){
   const ov=$id('fakeSystemOverlay');
   const ind=$id('fakeBugIndicator');
   const outage=$id('fakeOutage');
+
   if(ov)ov.classList.remove('show');
   if(ind)ind.classList.remove('show');
+
   if(outage){
     outage.classList.remove('show','fake-server-screen','fake-white-crash');
   }
+
   document.querySelectorAll('.fake-glitch,.fake-flicker,.fake-loading-card').forEach(el=>{
     el.classList.remove('fake-glitch','fake-flicker','fake-loading-card');
   });
+
   fakeBugBusy=false;
 }
 
-
-function fakePageOutage(){
+function showTimedOutError(){
   const outage=$id('fakeOutage');
   const title=$id('fakeOutageTitle');
   const text=$id('fakeOutageText');
@@ -920,174 +922,67 @@ function fakePageOutage(){
   const icon=$id('fakeOutageIcon');
   const retry=$id('fakeOutageRetryText');
 
-  if(!outage || !title || !text || !code){
-    fakeBugBusy=false;
-    return;
-  }
+  if(!outage)return;
 
   outage.classList.remove('fake-server-screen','fake-white-crash');
-
-  const type=Math.floor(Math.random()*4);
-
-  if(type===0){
-    icon.textContent='☹';
-    title.textContent='No se puede acceder a este sitio';
-    text.textContent='La página tardó demasiado en responder.';
-    hint.textContent='Comprueba la conexión e inténtalo de nuevo.';
-    code.textContent='ERR_CONNECTION_TIMED_OUT';
-    retry.textContent='Intentando reconectar…';
-  }else if(type===1){
-    icon.textContent='⚠';
-    title.textContent='Conexión perdida';
-    text.textContent='No se pudo establecer comunicación con el servidor.';
-    hint.textContent='La aplicación intentará recuperar la sesión automáticamente.';
-    code.textContent='NETWORK_ERROR · CONNECTION_RESET';
-    retry.textContent='Restableciendo conexión…';
-  }else if(type===2){
-    outage.classList.add('fake-server-screen');
-    icon.textContent='503';
-    title.textContent='503 Service Unavailable';
-    text.textContent='The server is temporarily unable to service your request.';
-    hint.textContent='Please try again in a few moments.';
-    code.textContent='upstream connect error or disconnect/reset before headers';
-    retry.textContent='Retrying request…';
-  }else{
-    outage.classList.add('fake-white-crash');
-    icon.textContent='⚙';
-    title.textContent='Error al cargar la aplicación';
-    text.textContent='Se produjo un error inesperado al recuperar los datos.';
-    hint.textContent='No cierres esta ventana. El sistema está intentando recuperarse.';
-    code.textContent='APP_RUNTIME_ERROR · RETRYING';
-    retry.textContent='Recuperando sesión…';
-  }
-
+  icon.textContent='☹';
+  title.textContent='No se puede acceder a este sitio';
+  text.textContent='La página tardó demasiado en responder.';
+  hint.textContent='Comprueba la conexión e inténtalo de nuevo.';
+  code.textContent='ERR_CONNECTION_TIMED_OUT';
+  retry.textContent='Intentando reconectar…';
   outage.classList.add('show');
+}
 
-  // Primera fase: parece caída real.
-  setTimeout(()=>{
+function showConnectionLostError(){
+  const outage=$id('fakeOutage');
+  const title=$id('fakeOutageTitle');
+  const text=$id('fakeOutageText');
+  const hint=$id('fakeOutageHint');
+  const code=$id('fakeOutageCode');
+  const icon=$id('fakeOutageIcon');
+  const retry=$id('fakeOutageRetryText');
+
+  if(!outage)return;
+
+  outage.classList.remove('fake-server-screen','fake-white-crash');
+  icon.textContent='⚠';
+  title.textContent='Conexión perdida';
+  text.textContent='No se pudo establecer comunicación con el servidor.';
+  hint.textContent='La aplicación intentará recuperar la sesión automáticamente.';
+  code.textContent='NETWORK_ERROR · CONNECTION_RESET';
+  retry.textContent='Restableciendo conexión…';
+  outage.classList.add('show');
+}
+
+function startFakeOutageCycle(){
+  if(fakeOutageTimer)clearTimeout(fakeOutageTimer);
+
+  // 10 segundos de funcionamiento normal antes de mostrar el error.
+  fakeOutageTimer=setTimeout(()=>{
     if(!fakeBugsAllowed()){
-      clearFakeSystemEffect();
+      startFakeOutageCycle();
       return;
     }
-    retry.textContent='Servidor encontrado. Sincronizando…';
-  },3200);
 
-  // Segunda fase: se "recupera" sola.
-  setTimeout(()=>{
-    outage.classList.remove('show','fake-server-screen','fake-white-crash');
-    fakeBugBusy=false;
-  },6500+Math.floor(Math.random()*2500));
-}
+    fakeBugBusy=true;
 
-function fakeOverlayEffect(){
-  const ov=$id('fakeSystemOverlay');
-  const tx=$id('fakeSystemText');
-  if(!ov||!tx)return clearFakeSystemEffect();
+    // Solo existen dos errores y se alternan.
+    if(fakeOutageIndex % 2 === 0)showTimedOutError();
+    else showConnectionLostError();
 
-  const texts=[
-    'Sincronizando registros…',
-    'Reconectando con el servidor…',
-    'Actualizando información…',
-    'Recuperando estado del sistema…'
-  ];
-  tx.textContent=texts[Math.floor(Math.random()*texts.length)];
-  ov.classList.add('show');
+    fakeOutageIndex++;
 
-  setTimeout(()=>{
-    ov.classList.remove('show');
-    fakeBugBusy=false;
-  },3500+Math.floor(Math.random()*1800));
-}
+    // El error fingido permanece visible durante 30 segundos.
+    fakeOutageTimer=setTimeout(()=>{
+      clearFakeSystemEffect();
 
-function fakeCardReload(){
-  const candidates=[
-    ...document.querySelectorAll('#viewStudent .card, #viewStudent .rec-card')
-  ].filter(el=>el.offsetParent!==null);
+      // Después vuelve a funcionar normal por 10 segundos
+      // antes del siguiente error fingido.
+      startFakeOutageCycle();
+    },30000);
 
-  if(!candidates.length)return fakeOverlayEffect();
-
-  const el=candidates[Math.floor(Math.random()*candidates.length)];
-  el.classList.add('fake-loading-card','fake-flicker');
-
-  setTimeout(()=>{
-    el.classList.remove('fake-loading-card','fake-flicker');
-    fakeBugBusy=false;
-  },3000+Math.floor(Math.random()*1500));
-}
-
-function fakeInterfaceGlitch(){
-  const target=$id('viewStudent');
-  if(!target)return fakeOverlayEffect();
-
-  target.classList.add('fake-glitch');
-
-  setTimeout(()=>{
-    target.classList.remove('fake-glitch');
-    fakeBugBusy=false;
-  },2800);
-}
-
-function fakeButtonProcessing(button){
-  if(!button)return fakeOverlayEffect();
-
-  const original=button.innerHTML;
-  const width=button.getBoundingClientRect().width;
-  if(width)button.style.minWidth=width+'px';
-
-  button.innerHTML='⏳ Procesando…';
-
-  setTimeout(()=>{
-    // Solo restauramos la apariencia. La acción real nunca se modifica.
-    if(document.body.contains(button)){
-      button.innerHTML=original;
-      button.style.minWidth='';
-    }
-    fakeBugBusy=false;
-  },3200+Math.floor(Math.random()*1600));
-}
-
-function showFakeSystemBug(clickedButton){
-  if(fakeBugBusy || !fakeBugsAllowed())return;
-  fakeBugBusy=true;
-
-  const effect=Math.floor(Math.random()*6);
-
-  // Dos de seis veces, simula una caída completa de la página.
-  if(effect===0 || effect===1)fakePageOutage();
-  else if(effect===2)fakeOverlayEffect();
-  else if(effect===3)fakeCardReload();
-  else if(effect===4)fakeInterfaceGlitch();
-  else fakeButtonProcessing(clickedButton);
-}
-
-function maybeFakeSystemBug(clickedButton){
-  if(!fakeBugsAllowed())return;
-  // Aproximadamente 1 de cada 7 interacciones.
-  if(Math.random()<0.48)showFakeSystemBug(clickedButton);
-}
-
-document.addEventListener('click',function(e){
-  const b=e.target.closest('button');
-  if(!b || !fakeBugsAllowed())return;
-
-  const txt=(b.textContent||'').toLowerCase();
-  if(txt.includes('cancelar')||txt.includes('cerrar')||txt.includes('salir'))return;
-
-  // La función real del botón ocurre normalmente.
-  // Esto solo añade una apariencia de fallo después del clic.
-  setTimeout(()=>maybeFakeSystemBug(b),90);
-});
-
-// Además de los clics, la vista de estudiante simula un pequeño fallo
-// automáticamente cada 9 a 16 segundos aproximadamente.
-function scheduleAutomaticFakeBug(){
-  const delay=9000+Math.floor(Math.random()*7000);
-  setTimeout(()=>{
-    if(fakeBugsAllowed() && !fakeBugBusy){
-      showFakeSystemBug(null);
-    }
-    scheduleAutomaticFakeBug();
-  },delay);
+  },10000);
 }
 
 function initApp(){
@@ -1099,7 +994,7 @@ function initApp(){
   $id('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal()});
   tickClock();setInterval(tickClock,1000);
   switchRole('student');
-  scheduleAutomaticFakeBug();
+  startFakeOutageCycle();
 }
 initApp();
 </script>
