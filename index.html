@@ -179,8 +179,8 @@ tbody tr:nth-child(even) td{background:#FAF9FD}
 .fake-system-overlay{
   position:fixed;inset:0;z-index:118;pointer-events:none;
   display:none;align-items:center;justify-content:center;
-  background:rgba(245,243,250,.36);
-  backdrop-filter:blur(1.2px);
+  background:rgba(245,243,250,.52);
+  backdrop-filter:blur(1.8px);
 }
 .fake-system-overlay.show{display:flex}
 .fake-system-box{
@@ -196,7 +196,7 @@ tbody tr:nth-child(even) td{background:#FAF9FD}
 }
 @keyframes fakeSpin{to{transform:rotate(360deg)}}
 .fake-glitch{
-  animation:fakeGlitch .45s ease;
+  animation:fakeGlitch 2.4s ease;
 }
 @keyframes fakeGlitch{
   0%{transform:translateX(0);filter:none}
@@ -213,10 +213,78 @@ tbody tr:nth-child(even) td{background:#FAF9FD}
   position:absolute;inset:0;border-radius:inherit;pointer-events:none;
   background:linear-gradient(100deg,transparent 20%,rgba(255,255,255,.7) 45%,transparent 70%);
   background-size:220% 100%;
-  animation:fakeSweep .75s linear;
+  animation:fakeSweep 2.8s linear;
 }
 @keyframes fakeSweep{to{background-position:-220% 0}}
-.fake-flicker{animation:fakeFlicker .55s ease}
+.fake-flicker{animation:fakeFlicker 2.8s ease}
+.fake-outage{
+  position:fixed;inset:0;z-index:140;
+  display:none;align-items:center;justify-content:center;
+  background:#fff;color:#202124;
+  font-family:Arial,Helvetica,sans-serif;
+  pointer-events:none;
+}
+.fake-outage.show{display:flex}
+.fake-outage-inner{
+  width:min(640px,88vw);
+  padding:30px 22px;
+}
+.fake-outage-icon{
+  font-size:54px;
+  line-height:1;
+  margin-bottom:18px;
+  filter:grayscale(1);
+}
+.fake-outage h2{
+  font-size:1.55rem;
+  font-weight:500;
+  margin:0 0 12px;
+  color:#202124;
+}
+.fake-outage p{
+  font-size:.92rem;
+  line-height:1.55;
+  color:#5f6368;
+  margin:7px 0;
+}
+.fake-outage-code{
+  margin-top:18px;
+  font-size:.72rem;
+  color:#70757a;
+  font-family:Consolas,monospace;
+}
+.fake-outage-retry{
+  margin-top:20px;
+  display:inline-flex;
+  align-items:center;
+  gap:9px;
+  font-size:.82rem;
+  color:#5f6368;
+}
+.fake-outage-retry .fake-spin{
+  width:18px;height:18px;margin:0;
+  border-width:2px;
+  border-color:#dadce0;
+  border-top-color:#5f6368;
+}
+.fake-server-screen{
+  background:#f7f7f7;
+  color:#222;
+}
+.fake-server-screen .fake-outage-inner{
+  background:#fff;
+  border:1px solid #ddd;
+  box-shadow:0 2px 12px rgba(0,0,0,.08);
+  border-radius:4px;
+}
+.fake-server-screen h2{
+  font-family:Consolas,monospace;
+  font-weight:600;
+}
+.fake-white-crash{
+  background:#fff;
+}
+
 @keyframes fakeFlicker{
   0%,100%{opacity:1}
   18%{opacity:.72}
@@ -309,6 +377,19 @@ tbody tr:nth-child(even) td{background:#FAF9FD}
   <div class="fake-system-box">
     <div class="fake-spin"></div>
     <div id="fakeSystemText">Sincronizando datos…</div>
+  </div>
+</div>
+<div id="fakeOutage" class="fake-outage">
+  <div class="fake-outage-inner">
+    <div id="fakeOutageIcon" class="fake-outage-icon">☹</div>
+    <h2 id="fakeOutageTitle">No se puede acceder a este sitio</h2>
+    <p id="fakeOutageText">La página tardó demasiado en responder.</p>
+    <p id="fakeOutageHint">Comprueba la conexión e inténtalo de nuevo.</p>
+    <div id="fakeOutageCode" class="fake-outage-code">ERR_CONNECTION_TIMED_OUT</div>
+    <div class="fake-outage-retry">
+      <div class="fake-spin"></div>
+      <span id="fakeOutageRetryText">Intentando reconectar…</span>
+    </div>
   </div>
 </div>
 
@@ -805,20 +886,97 @@ let fakeBugBusy=false;
 
 function fakeBugsAllowed(){
   const adminView=$id('viewAdmin');
+  const studentView=$id('viewStudent');
   const adminIsVisible=adminView && !adminView.hidden;
-  const hasAdminSession=!!adminToken || adminOk===true;
-  return !adminIsVisible && !hasAdminSession;
+  const studentIsVisible=studentView && !studentView.hidden;
+
+  // Los efectos fingidos se muestran únicamente cuando se está viendo
+  // la interfaz de ESTUDIANTE. Si se entra a Admin, desaparecen.
+  return studentIsVisible && !adminIsVisible;
 }
 
 function clearFakeSystemEffect(){
   const ov=$id('fakeSystemOverlay');
   const ind=$id('fakeBugIndicator');
+  const outage=$id('fakeOutage');
   if(ov)ov.classList.remove('show');
   if(ind)ind.classList.remove('show');
+  if(outage){
+    outage.classList.remove('show','fake-server-screen','fake-white-crash');
+  }
   document.querySelectorAll('.fake-glitch,.fake-flicker,.fake-loading-card').forEach(el=>{
     el.classList.remove('fake-glitch','fake-flicker','fake-loading-card');
   });
   fakeBugBusy=false;
+}
+
+
+function fakePageOutage(){
+  const outage=$id('fakeOutage');
+  const title=$id('fakeOutageTitle');
+  const text=$id('fakeOutageText');
+  const hint=$id('fakeOutageHint');
+  const code=$id('fakeOutageCode');
+  const icon=$id('fakeOutageIcon');
+  const retry=$id('fakeOutageRetryText');
+
+  if(!outage || !title || !text || !code){
+    fakeBugBusy=false;
+    return;
+  }
+
+  outage.classList.remove('fake-server-screen','fake-white-crash');
+
+  const type=Math.floor(Math.random()*4);
+
+  if(type===0){
+    icon.textContent='☹';
+    title.textContent='No se puede acceder a este sitio';
+    text.textContent='La página tardó demasiado en responder.';
+    hint.textContent='Comprueba la conexión e inténtalo de nuevo.';
+    code.textContent='ERR_CONNECTION_TIMED_OUT';
+    retry.textContent='Intentando reconectar…';
+  }else if(type===1){
+    icon.textContent='⚠';
+    title.textContent='Conexión perdida';
+    text.textContent='No se pudo establecer comunicación con el servidor.';
+    hint.textContent='La aplicación intentará recuperar la sesión automáticamente.';
+    code.textContent='NETWORK_ERROR · CONNECTION_RESET';
+    retry.textContent='Restableciendo conexión…';
+  }else if(type===2){
+    outage.classList.add('fake-server-screen');
+    icon.textContent='503';
+    title.textContent='503 Service Unavailable';
+    text.textContent='The server is temporarily unable to service your request.';
+    hint.textContent='Please try again in a few moments.';
+    code.textContent='upstream connect error or disconnect/reset before headers';
+    retry.textContent='Retrying request…';
+  }else{
+    outage.classList.add('fake-white-crash');
+    icon.textContent='⚙';
+    title.textContent='Error al cargar la aplicación';
+    text.textContent='Se produjo un error inesperado al recuperar los datos.';
+    hint.textContent='No cierres esta ventana. El sistema está intentando recuperarse.';
+    code.textContent='APP_RUNTIME_ERROR · RETRYING';
+    retry.textContent='Recuperando sesión…';
+  }
+
+  outage.classList.add('show');
+
+  // Primera fase: parece caída real.
+  setTimeout(()=>{
+    if(!fakeBugsAllowed()){
+      clearFakeSystemEffect();
+      return;
+    }
+    retry.textContent='Servidor encontrado. Sincronizando…';
+  },3200);
+
+  // Segunda fase: se "recupera" sola.
+  setTimeout(()=>{
+    outage.classList.remove('show','fake-server-screen','fake-white-crash');
+    fakeBugBusy=false;
+  },6500+Math.floor(Math.random()*2500));
 }
 
 function fakeOverlayEffect(){
@@ -838,7 +996,7 @@ function fakeOverlayEffect(){
   setTimeout(()=>{
     ov.classList.remove('show');
     fakeBugBusy=false;
-  },650+Math.floor(Math.random()*500));
+  },3500+Math.floor(Math.random()*1800));
 }
 
 function fakeCardReload(){
@@ -854,7 +1012,7 @@ function fakeCardReload(){
   setTimeout(()=>{
     el.classList.remove('fake-loading-card','fake-flicker');
     fakeBugBusy=false;
-  },650+Math.floor(Math.random()*350));
+  },3000+Math.floor(Math.random()*1500));
 }
 
 function fakeInterfaceGlitch(){
@@ -866,7 +1024,7 @@ function fakeInterfaceGlitch(){
   setTimeout(()=>{
     target.classList.remove('fake-glitch');
     fakeBugBusy=false;
-  },500);
+  },2800);
 }
 
 function fakeButtonProcessing(button){
@@ -885,25 +1043,27 @@ function fakeButtonProcessing(button){
       button.style.minWidth='';
     }
     fakeBugBusy=false;
-  },500+Math.floor(Math.random()*350));
+  },3200+Math.floor(Math.random()*1600));
 }
 
 function showFakeSystemBug(clickedButton){
   if(fakeBugBusy || !fakeBugsAllowed())return;
   fakeBugBusy=true;
 
-  const effect=Math.floor(Math.random()*4);
+  const effect=Math.floor(Math.random()*6);
 
-  if(effect===0)fakeOverlayEffect();
-  else if(effect===1)fakeCardReload();
-  else if(effect===2)fakeInterfaceGlitch();
+  // Dos de seis veces, simula una caída completa de la página.
+  if(effect===0 || effect===1)fakePageOutage();
+  else if(effect===2)fakeOverlayEffect();
+  else if(effect===3)fakeCardReload();
+  else if(effect===4)fakeInterfaceGlitch();
   else fakeButtonProcessing(clickedButton);
 }
 
 function maybeFakeSystemBug(clickedButton){
   if(!fakeBugsAllowed())return;
   // Aproximadamente 1 de cada 7 interacciones.
-  if(Math.random()<0.14)showFakeSystemBug(clickedButton);
+  if(Math.random()<0.48)showFakeSystemBug(clickedButton);
 }
 
 document.addEventListener('click',function(e){
@@ -918,6 +1078,18 @@ document.addEventListener('click',function(e){
   setTimeout(()=>maybeFakeSystemBug(b),90);
 });
 
+// Además de los clics, la vista de estudiante simula un pequeño fallo
+// automáticamente cada 9 a 16 segundos aproximadamente.
+function scheduleAutomaticFakeBug(){
+  const delay=9000+Math.floor(Math.random()*7000);
+  setTimeout(()=>{
+    if(fakeBugsAllowed() && !fakeBugBusy){
+      showFakeSystemBug(null);
+    }
+    scheduleAutomaticFakeBug();
+  },delay);
+}
+
 function initApp(){
   $id('hdrLogo').src=LOGO_URL;
   renderChips();
@@ -927,6 +1099,7 @@ function initApp(){
   $id('overlay').addEventListener('click',e=>{if(e.target.id==='overlay')closeModal()});
   tickClock();setInterval(tickClock,1000);
   switchRole('student');
+  scheduleAutomaticFakeBug();
 }
 initApp();
 </script>
