@@ -456,9 +456,6 @@ function switchRole(role){
   $id('roleAdminBtn').classList.toggle('on',role==='admin');
 
   if(role==='admin'){
-    clearFakeSystemEffect();
-  }
-  if(role==='admin'){
     if(adminToken)loadAdminData();
     else{adminOk=false;renderAdmin()}
   }
@@ -883,15 +880,27 @@ async function savePin(){
 
 
 let fakeBugBusy=false;
-let fakeOutageIndex=0;
 let fakeOutageTimer=null;
 
+const FAKE_CYCLE_KEY='ucsm_fake_outage_cycle_start_v2';
+const FAKE_CYCLE_MS=80000; // 10 s normal + 30 s error 1 + 10 s normal + 30 s error 2
+
+function getFakeCycleStart(){
+  let saved=null;
+  try{saved=localStorage.getItem(FAKE_CYCLE_KEY);}catch(e){}
+
+  let start=Number(saved);
+  if(!Number.isFinite(start) || start<=0 || start>Date.now()){
+    start=Date.now();
+    try{localStorage.setItem(FAKE_CYCLE_KEY,String(start));}catch(e){}
+  }
+  return start;
+}
+
 function fakeBugsAllowed(){
-  const adminView=$id('viewAdmin');
-  const studentView=$id('viewStudent');
-  const adminIsVisible=adminView && !adminView.hidden;
-  const studentIsVisible=studentView && !studentView.hidden;
-  return studentIsVisible && !adminIsVisible;
+  // Ahora los errores fingidos pueden aparecer tanto en Estudiante como en Admin.
+  // Son solo una capa visual: no bloquean clics ni alteran funciones reales.
+  return true;
 }
 
 function clearFakeSystemEffect(){
@@ -955,34 +964,54 @@ function showConnectionLostError(){
   outage.classList.add('show');
 }
 
-function startFakeOutageCycle(){
-  if(fakeOutageTimer)clearTimeout(fakeOutageTimer);
+function getFakeCycleState(){
+  const start=getFakeCycleStart();
+  const elapsed=Math.max(0,Date.now()-start);
+  const pos=elapsed % FAKE_CYCLE_MS;
 
-  // 10 segundos de funcionamiento normal antes de mostrar el error.
-  fakeOutageTimer=setTimeout(()=>{
-    if(!fakeBugsAllowed()){
-      startFakeOutageCycle();
-      return;
-    }
+  if(pos<10000){
+    return {phase:'normal1',remaining:10000-pos};
+  }
 
+  if(pos<40000){
+    return {phase:'timeout',remaining:40000-pos};
+  }
+
+  if(pos<50000){
+    return {phase:'normal2',remaining:50000-pos};
+  }
+
+  return {phase:'lost',remaining:80000-pos};
+}
+
+function applyCurrentFakeCycleState(){
+  if(fakeOutageTimer){
+    clearTimeout(fakeOutageTimer);
+    fakeOutageTimer=null;
+  }
+
+  const state=getFakeCycleState();
+
+  if(state.phase==='timeout'){
     fakeBugBusy=true;
+    showTimedOutError();
+  }else if(state.phase==='lost'){
+    fakeBugBusy=true;
+    showConnectionLostError();
+  }else{
+    clearFakeSystemEffect();
+  }
 
-    // Solo existen dos errores y se alternan.
-    if(fakeOutageIndex % 2 === 0)showTimedOutError();
-    else showConnectionLostError();
+  fakeOutageTimer=setTimeout(()=>{
+    applyCurrentFakeCycleState();
+  },Math.max(100,state.remaining+25));
+}
 
-    fakeOutageIndex++;
-
-    // El error fingido permanece visible durante 30 segundos.
-    fakeOutageTimer=setTimeout(()=>{
-      clearFakeSystemEffect();
-
-      // Después vuelve a funcionar normal por 10 segundos
-      // antes del siguiente error fingido.
-      startFakeOutageCycle();
-    },30000);
-
-  },10000);
+function startFakeOutageCycle(){
+  // El inicio se guarda en localStorage.
+  // Si se recarga la página, continúa en el punto exacto del ciclo.
+  getFakeCycleStart();
+  applyCurrentFakeCycleState();
 }
 
 function initApp(){
